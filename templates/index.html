@@ -308,8 +308,8 @@
                     
                     if (data.success) {
                         // Update the transcript with the full text
-                        transcript.textContent = data.full_text;
-                        transcript_en.textContent = data.full_text_en;
+                        transcript.textContent = data.text;
+                        transcript_en.textContent = data.text_en;
                         transcript.parentElement.scrollTop = transcript.parentElement.scrollHeight;
                     } else if (data.error) {
                         console.error('Speech recognition error:', data.error);
