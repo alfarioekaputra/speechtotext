@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech to Text Realtime</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #121dec;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+
+        .container {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .status {
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .status.recording {
+            background-color: #ffecec;
+            color: #d32f2f;
+        }
+
+        .status.idle {
+            background-color: #e8f5e9;
+            color: #388e3c;
+        }
+
+        .transcript-container {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            background-color: #fafafa;
+        }
+
+        .transcript {
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .record-btn {
+            background-color: #d32f2f;
+            color: white;
+        }
+
+        .record-btn:hover:not(:disabled) {
+            background-color: #b71c1c;
+        }
+
+        .stop-btn {
+            background-color: #757575;
+            color: white;
+        }
+
+        .stop-btn:hover:not(:disabled) {
+            background-color: #616161;
+        }
+
+        .copy-btn {
+            background-color: #2196f3;
+            color: white;
+        }
+
+        .copy-btn:hover:not(:disabled) {
+            background-color: #1976d2;
+        }
+
+        .clear-btn {
+            background-color: #ff9800;
+            color: white;
+        }
+
+        .clear-btn:hover:not(:disabled) {
+            background-color: #f57c00;
+        }
+
+        .settings {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #efefef;
+            border-radius: 4px;
+        }
+
+        .settings label {
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #757575;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Speech to Text Realtime</h1>
+
+        <div class="status idle" id="status">Siap untuk mendengarkan</div>
+
+        <div class="controls">
+            <button id="recordBtn" class="record-btn">Mulai Rekam</button>
+            <button id="stopBtn" class="stop-btn" disabled>Berhenti</button>
+            <button id="copyBtn" class="copy-btn">Salin Teks</button>
+            <button id="clearBtn" class="clear-btn">Bersihkan</button>
+        </div>
+
+        <div class="transcript-container">
+            <div id="transcript" class="transcript"></div>
+        </div>
+        <div class="transcript-container">
+            <div id="transcript_en" class="transcript"></div>
+        </div>
+
+        <div class="settings">
+            <label>
+                Mode Rekam:
+                <select id="recordingMode">
+                    <option value="continuous">Berkelanjutan (direkomendasikan)</option>
+                    <option value="manual">Manual</option>
+                </select>
+            </label>
+        </div>
+    </div>
+
+    <footer>
+        <p>Speech to Text Realtime menggunakan SpeechRecognition dan Flask</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const recordBtn = document.getElementById('recordBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const copyBtn = document.getElementById('copyBtn');
+            const clearBtn = document.getElementById('clearBtn');
+            const transcript = document.getElementById('transcript');
+            const transcript_en = document.getElementById('transcript_en');
+            const statusDiv = document.getElementById('status');
+            const recordingModeSelect = document.getElementById('recordingMode');
+
+            let mediaRecorder;
+            let audioChunks = [];
+            let isRecording = false;
+            let sessionId = null;
+            let continuousRecording = true;
+            let recordingInterval = null;
+
+            // Check if browser supports required APIs
+            if (!navigator.mediaDevices || !window.MediaRecorder) {
+                alert('Browser Anda tidak mendukung fitur rekaman audio. Mohon gunakan browser modern seperti Chrome, Firefox, atau Edge.');
+                recordBtn.disabled = true;
+                return;
+            }
+
+            // Handle recording mode changes
+            recordingModeSelect.addEventListener('change', function () {
+                continuousRecording = recordingModeSelect.value === 'continuous';
+            });
+
+            // Start recording
+            recordBtn.addEventListener('click', async function () {
+                try {
+                    
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                   
+                    // Start a new session
+                    const response = await fetch('/start_transcription', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    console.log(response);
+
+                    const data = await response.json();
+                    sessionId = data.session_id;
+
+                    mediaRecorder = new MediaRecorder(stream);
+
+                    mediaRecorder.addEventListener('dataavailable', function (event) {
+                        audioChunks.push(event.data);
+                    });
+
+                    mediaRecorder.addEventListener('stop', async function () {
+                        if (audioChunks.length > 0) {
+                            await processAudioChunks();
+                        }
+
+                        // If in continuous mode, start recording again
+                        if (isRecording && continuousRecording) {
+                            audioChunks = [];
+                            mediaRecorder.start();
+                            setTimeout(() => {
+                                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                                    mediaRecorder.stop();
+                                }
+                            }, 3000); // Record in 3-second chunks
+                        }
+                    });
+
+                    // Start the recording
+                    isRecording = true;
+                    updateUIForRecording(true);
+
+                    audioChunks = [];
+                    mediaRecorder.start();
+
+                    if (continuousRecording) {
+                        // For continuous mode, record in chunks
+                        setTimeout(() => {
+                            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                                mediaRecorder.stop();
+                            }
+                        }, 3000);
+                    }
+
+                } catch (error) {
+                    console.error('Error accessing microphone:', error);
+                    alert('Tidak dapat mengakses mikrofon. Pastikan Anda memberikan izin dan mikrofon terhubung dengan benar.');
+                }
+            });
+
+            // Stop recording
+            stopBtn.addEventListener('click', function () {
+                stopRecording();
+            });
+
+            // Copy transcript to clipboard
+            copyBtn.addEventListener('click', function () {
+                const text = transcript.textContent;
+                navigator.clipboard.writeText(text)
+                    .then(() => {
+                        alert('Teks berhasil disalin ke clipboard!');
+                    })
+                    .catch(err => {
+                        console.error('Error copying text: ', err);
+                        alert('Gagal menyalin teks');
+                    });
+            });
+
+            // Clear transcript
+            clearBtn.addEventListener('click', function () {
+                transcript.textContent = '';
+                transcript_en.textContent = '';
+            });
+
+            // Process recorded audio chunks
+            async function processAudioChunks() {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+
+                const formData = new FormData();
+                formData.append('audio', audioBlob);
+                formData.append('session_id', sessionId);
+
+                try {
+                    const response = await fetch('/process_audio', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        // Update the transcript with the full text
+                        transcript.textContent = data.full_text;
+                        transcript_en.textContent = data.full_text_en;
+                        transcript.parentElement.scrollTop = transcript.parentElement.scrollHeight;
+                    } else if (data.error) {
+                        console.error('Speech recognition error:', data.error);
+                        
+                        // Only show error for non-continuous mode to avoid spamming
+                        if (!continuousRecording) {
+                            statusDiv.textContent = `Error: ${data.error}`;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error processing audio:', error);
+                }
+            }
+
+            // Stop recording
+            function stopRecording() {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                }
+
+                isRecording = false;
+                updateUIForRecording(false);
+
+                // Stop the session on the server
+                if (sessionId) {
+                    fetch('/stop_transcription', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ session_id: sessionId })
+                    });
+                }
+            }
+
+            // Update UI based on recording state
+            function updateUIForRecording(recording) {
+                if (recording) {
+                    recordBtn.disabled = true;
+                    stopBtn.disabled = false;
+                    statusDiv.textContent = 'Merekam...';
+                    statusDiv.className = 'status recording';
+                    recordingModeSelect.disabled = true;
+                } else {
+                    recordBtn.disabled = false;
+                    stopBtn.disabled = true;
+                    statusDiv.textContent = 'Siap untuk mendengarkan';
+                    statusDiv.className = 'status idle';
+                    recordingModeSelect.disabled = false;
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>
